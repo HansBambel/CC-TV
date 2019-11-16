@@ -1,0 +1,9 @@
+Pillow
+geopandas
+shapely
+descartes
+json
+matplotlib
+urllib
+math
+# dotenv
