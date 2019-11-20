@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Home</title>
+    <style>
+        .flex-container {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-content: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="flex-container">
+        <div>
+            <h3>City 1</h3>
+            <form method="POST">
+            <input name="City 1">
+        </div>
+        <div>
+            <h3>City 2</h3>
+            <form method="POST">
+            <input name="City 2">
+            <input type="submit">
+        </div>
+    </div>
+    <div class="flex-container">
+        {% for city in defaultCities %}
+            <div class="column">
+                <h1>{{ city.query }}</h1>
+                <p>Diagonal Size: {{ city.size }}km</p>
+                <img src="{{ city.image }}" alt="City Overlay">
+            </div>
+        {% endfor %}
+    </div>
+    <div class="flex-container">
+        <div class="column">
+            <h1>Both Overlays</h1>
+            <img src="{{ overlayIm }}" alt="City Overlay">
+        </div>
+    </div>
+
+</form>
+</body>
+</html>
