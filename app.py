@@ -51,7 +51,7 @@ def compare():
                 "image": os.path.join(imageFolder, "SmallCity.png")
             }
         ]
-        os.path.join(imageFolder, "Overlay.png")
+        overlayIm = os.path.join(imageFolder, "Overlay.png")
     return redirect(url_for("home"))
 
 
