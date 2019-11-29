@@ -37,6 +37,7 @@ def compare():
         overlay = overlayLib.overlayCities(city1, size1, city2, size2)
         size1 = round(size1, 2)
         size2 = round(size2, 2)
+        # TODO get Google maps background from big city
         global cities
         global overlayIm
         cities = [
@@ -60,11 +61,13 @@ def home():
     return render_template("home.html", defaultCities=cities, overlayIm=overlayIm)
 
 
+# No caching at all for API endpoints.
 @app.after_request
 def add_header(response):
+    # response.cache_control.no_store = True
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
     response.headers['Pragma'] = 'no-cache'
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    response.headers['Expires'] = '0'
+    response.headers['Expires'] = '-1'
     return response
 
 
