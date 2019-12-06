@@ -6,6 +6,7 @@ from sklearn import preprocessing
 from torchvision import transforms
 import torchvision.transforms.functional as TF
 from torch.utils.tensorboard import SummaryWriter
+from unet_model import UNet
 
 from PIL import Image
 from pathlib import Path
@@ -20,26 +21,28 @@ import os
 
 
 class SatelliteDataset(Dataset):
-    def __init__(self, image_paths, target_paths, train=True):
+    def __init__(self, image_paths, target_paths, train=True, device="cpu"):
         self.image_paths = [os.path.join(image_paths, imPath) for imPath in os.listdir(image_paths)]
         self.target_paths = [os.path.join(target_paths, imPath) for imPath in os.listdir(target_paths)]
         self.train = train
+        self.device = device
 
     def __getitem__(self, index):
         image = Image.open(self.image_paths[index])
         target_image = Image.open(self.target_paths[index])
+        image = image.convert('RGB')
+        target_image = target_image.convert('RGB')
         # transformations, e.g. Random Crop etc.
         # Make sure to perform the same transformations on image and target
         # Here is a small example: https://discuss.pytorch.org/t/torchvision-transfors-how-to-perform-identical-transform-on-both-image-and-target/10606/7?u=ptrblck
         if self.train:
-            x, y = self.transform(image, target_image)
-            return x, y
+            image, target_image = self.transform(image, target_image)
         else:
             # Only resize
             resize = transforms.Resize(size=(512, 512))
             image = resize(image)
             target_image = resize(target_image)
-            return image, target_image
+        return image.to(self.device), target_image.to(self.device)
 
     def __len__(self):
         return len(self.image_paths)
@@ -85,22 +88,6 @@ def accuracy(model, test_dl):
     return 100 * correct / total
 
 
-class Mnist_CNN(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)
-        self.conv2 = nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(16, 10, kernel_size=3, stride=2, padding=1)
-
-    def forward(self, xb):
-        xb = xb.view(-1, 1, 28, 28)
-        xb = F.relu(self.conv1(xb))
-        xb = F.relu(self.conv2(xb))
-        xb = F.relu(self.conv3(xb))
-        xb = F.avg_pool2d(xb, 4)
-        return xb.view(-1, xb.size(1))
-
-
 def loss_batch(model, loss_func, xb, yb, opt=None):
     loss = loss_func(model(xb), yb)
 
@@ -114,6 +101,7 @@ def loss_batch(model, loss_func, xb, yb, opt=None):
 
 def fit(epochs, model, loss_func, opt, train_dl, valid_dl, save_every: int = None):
     writer = SummaryWriter()
+    start_time = time.time()
     for epoch in range(epochs):
         model.train()
         train_loss = 0.0
@@ -131,7 +119,7 @@ def fit(epochs, model, loss_func, opt, train_dl, valid_dl, save_every: int = Non
             )
         val_loss = np.sum(np.multiply(losses, nums)) / np.sum(nums)
 
-        print(f"Epoch: {epoch:5d}, Train_loss: {train_loss:2.7f}, Val_loss: {val_loss:2.7f}")
+        print(f"Epoch: {epoch:5d}, Time: {(time.time()-start_time)/60:.3f} min, Train_loss: {train_loss:2.10f}, Val_loss: {val_loss:2.10f}")
         # add to tensorboard
         writer.add_scalar('Loss/train', train_loss, epoch)
         writer.add_scalar('Loss/val', val_loss, epoch)
@@ -172,16 +160,18 @@ class WrappedDataLoader:
 
 
 def get_my_model():
-    model = nn.Sequential(
-        nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(16, 10, kernel_size=3, stride=2, padding=1),
-        nn.ReLU(),
-        nn.AdaptiveAvgPool2d(1),
-        FlatLayer(),
-    )
+    # model = nn.Sequential(
+    #     nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
+    #     nn.ReLU(),
+    #     nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1),
+    #     nn.ReLU(),
+    #     nn.Conv2d(16, 10, kernel_size=3, stride=2, padding=1),
+    #     nn.ReLU(),
+    #     nn.AdaptiveAvgPool2d(1),
+    #     FlatLayer(),
+    # )
+    # classes here are the rgb channels, because we just want to reconstruct the image
+    model = UNet(n_channels=3, n_classes=3)
     return model
 
 
@@ -189,9 +179,9 @@ def train_model():
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"Device: {dev}")
 
-    train_sat_ds = SatelliteDataset("data/train/sat_images", "data/train/combined", train=True)
-    valid_sat_ds = SatelliteDataset("data/valid/sat_images", "data/valid/combined", train=True)
-    test_sat_ds = SatelliteDataset("data/test/sat_images", "data/test/combined", train=False)
+    train_sat_ds = SatelliteDataset("data/sat_dataset/train/sat", "data/sat_dataset/train/combined", train=True, device=dev)
+    valid_sat_ds = SatelliteDataset("data/sat_dataset/validation/sat", "data/sat_dataset/validation/combined", train=True, device=dev)
+    test_sat_ds = SatelliteDataset("data/sat_dataset/test/sat", "data/sat_dataset/test/combined", train=False, device=dev)
 
     # Normalize/Scale only on train data. Use that scaler to later scale valid and test data
     # Pay attention to the range of your activation function! (Tanh --> [-1,1], Sigmoid --> [0,1])
@@ -200,43 +190,30 @@ def train_model():
     # x_valid = scaler.transform(x_valid)
     # x_test = scaler.transform(x_test)
 
-    batchsize = 8
-    # Create as Dataset and use Dataloader
-
+    batchsize = 3
     # Create Dataloaders for the dataset
     train_dl = DataLoader(train_sat_ds, batch_size=batchsize, shuffle=True)
     valid_dl = DataLoader(valid_sat_ds, batch_size=batchsize * 2, shuffle=False)
     test_dl = DataLoader(test_sat_ds, batch_size=batchsize, shuffle=False)
 
-    # OPTIONAL
-    # Include preprocessing (reshaping to 28x28) in data loaders and put in on GPU
-    def preprocess(x, y):
-        return x.view(-1, 1, 28, 28).to(dev), y.to(dev)
-
-    train_dl = WrappedDataLoader(train_dl, preprocess)
-    valid_dl = WrappedDataLoader(valid_dl, preprocess)
-    test_dl = WrappedDataLoader(test_dl, preprocess)
-
     # Define model (done in function)
-    lr = 0.1
+    lr = 0.01
     model = get_my_model()
     # Put the model on GPU
     model.to(dev)
     # Define optimizer
-    opt = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+    opt = optim.RMSprop(model.parameters(), lr=lr, weight_decay=1e-8, momentum=0.9)
     # Loss function
-    loss_func = F.cross_entropy
+    loss_func = F.mse_loss
     # Training
-    epochs = 4
-    start_time = time.time()
-    fit(epochs, model, loss_func, opt, train_dl, valid_dl)
-    print(f"Training took {time.time() - start_time} seconds")
+    epochs = 100
+    fit(epochs, model, loss_func, opt, train_dl, valid_dl, save_every=5)
     # Save model
-    torch.save({'state_dict': model.state_dict()}, "models/mnist.pt")
+    torch.save({'state_dict': model.state_dict()}, "models/unet_sat.pt")
     # Calculate accuracy
-    acc = accuracy(model, test_dl)
-    # len of dataloader depends on batchsize
-    print(f'Accuracy of the network on the {len(test_sat_ds)} test images: {acc}%')
+    # acc = accuracy(model, test_dl)
+    # # len of dataloader depends on batchsize
+    # print(f'Accuracy of the network on the {len(test_sat_ds)} test images: {acc}%')
 
 
 def resume_training(path_to_checkpoint):
@@ -288,13 +265,7 @@ def test_model(path_to_model):
     plt.show()
 
 
-def split_images_in_sets():
-    # TODO split the images in train-, valid- and test-folder
-    pass
-
-
 if __name__ == "__main__":
-    split_images_in_sets()
     train_model()
     # load_model()
     # test_model("models/mnist.pt")
