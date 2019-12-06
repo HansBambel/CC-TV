@@ -42,6 +42,9 @@ class SatelliteDataset(Dataset):
             resize = transforms.Resize(size=(512, 512))
             image = resize(image)
             target_image = resize(target_image)
+            # Transform to tensor
+            image = TF.to_tensor(image)
+            target_image = TF.to_tensor(target_image)
         return image.to(self.device), target_image.to(self.device)
 
     def __len__(self):
@@ -234,16 +237,15 @@ def resume_training(path_to_checkpoint):
 
 
 def test_model(path_to_model):
+    dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = get_my_model()
     checkpoint = torch.load(path_to_model)
     model.load_state_dict(checkpoint['state_dict'])
     # set to inference mode
     model.eval()
-    x_train, y_train, x_valid, y_valid, x_test, y_test = get_mnist()
-    # Convert to torch.tensors
-    x_train, y_train, x_valid, y_valid, x_test, y_test = map(
-        torch.tensor, (x_train, y_train, x_valid, y_valid, x_test, y_test)
-    )
+    model.to(dev)
+    test_sat_ds = SatelliteDataset("data/sat_dataset/test/sat", "data/sat_dataset/test/combined", train=False, device=dev)
+    # test_dl = DataLoader(test_sat_ds, batch_size=1, shuffle=False)
     # may need to rescale!
     # scaler = preprocessing.MinMaxScaler(feature_range=(-1, 1))
     # x_train = scaler.fit_transform(x_train)
@@ -252,20 +254,41 @@ def test_model(path_to_model):
 
     # Go through some examples and predict output
     n = 10
-    plt.subplots(2, n//2)
-    for i in range(n):
-        im = x_test[i]
-        im = im.reshape(-1, 1, 28, 28)
-        y_pred = model(im)
-        _, predicted = torch.max(y_pred.data, 1)
-        plt.subplot(2, n//2, i+1)
-        plt.imshow(im.squeeze(), cmap='gray')
-        plt.axis("off")
-        plt.title(f"Predicted: {predicted.item()}")
-    plt.show()
+    for i in range(len(test_sat_ds)):
+        fig, axs = plt.subplots(1, 3)
+        inp, target = test_sat_ds[i]
+        y_pred = model(inp.unsqueeze(dim=0))
+        # Copy tensors to cpu again
+        inp, target, y_pred = inp.cpu(), target.cpu(), y_pred.cpu()
+        # Prepare for numpy operations
+        inp = np.rollaxis(np.asarray(inp.squeeze()), 0, start=3)
+        target = np.rollaxis(np.asarray(target.squeeze()), 0, start=3)
+        y_pred = np.rollaxis(np.asarray(y_pred.squeeze().detach().numpy()), 0, start=3)
+
+        # Scale back to 0-255
+        inp = inp*255
+        target = target*255
+        y_pred = y_pred*255
+
+        # Plot
+        # plt.subplot(n, 3, i+1)
+        axs[0].imshow(inp.astype("uint8"))
+        axs[0].axis("off")
+        axs[0].set(title=f"input")
+        # plt.subplot(n, 3, i + 2)
+        axs[1].imshow(target.astype("uint8"))
+        axs[1].axis("off")
+        axs[1].set(title=f"target")
+        # plt.subplot(n, 3, i + 3)
+        axs[2].imshow(y_pred.astype("uint8"))
+        axs[2].axis("off")
+        axs[2].set(title=f"predicted")
+        plt.savefig(f"data/model_test/Testing {i}.png")
+        plt.close()
+    # plt.show()
 
 
 if __name__ == "__main__":
-    train_model()
+    # train_model()
     # load_model()
-    # test_model("models/mnist.pt")
+    test_model("models/unet_sat.pt")
