@@ -24,6 +24,11 @@ def getDistance(lat1, lon1, lat2, lon2):
     return distance
 
 
+def getCitySize(cityBounds):
+    lat1, lon1, lat2, lon2 = cityBounds
+    return getDistance(lat1, lon1, lat2, lon2)
+
+
 def getCityOutline(query: str):
     openStreetMap_base_url = "https://nominatim.openstreetmap.org/search"
     url = openStreetMap_base_url + '?' + urllib.parse.urlencode({
@@ -37,22 +42,34 @@ def getCityOutline(query: str):
 
     # find first multipolygon/polygon result (most likely the correct one)
     for shape in responseJson:
-        if isinstance(shapely.geometry.shape(shape["geojson"]), shapely.geometry.MultiPolygon):
-            cityShape = shapely.geometry.shape(shape["geojson"])
-            lat1, long1, lat2, long2 = cityShape.bounds
-            distance = getDistance(lat1, long1, lat2, long2)
-            cityGDF = geopandas.GeoDataFrame({
-                "geometry": cityShape
-            })
-            return cityGDF, distance
-        elif isinstance(shapely.geometry.shape(shape["geojson"]), shapely.geometry.Polygon):
-            cityShape = shapely.geometry.shape(shape["geojson"])
-            lat1, long1, lat2, long2 = cityShape.bounds
-            distance = getDistance(lat1, long1, lat2, long2)
-            cityGDF = geopandas.GeoDataFrame({
-                "geometry": cityShape
-            }, index=[0])
-            return cityGDF, distance
+        # Included this try if shape has no geojson. Now just goes to next entry
+        try:
+            if isinstance(shapely.geometry.shape(shape["geojson"]), shapely.geometry.MultiPolygon):
+                cityShape = shapely.geometry.shape(shape["geojson"])
+                lat1, long1, lat2, long2 = cityShape.bounds
+                bounds = [lat1, long1, lat2, long2]
+                # check if size is way too big or too small. If so --> kick out
+                size = getCitySize(bounds)
+                if size > 200 or size < 5:
+                    continue
+                cityGDF = geopandas.GeoDataFrame({
+                    "geometry": cityShape
+                })
+                return cityGDF, bounds
+            elif isinstance(shapely.geometry.shape(shape["geojson"]), shapely.geometry.Polygon):
+                cityShape = shapely.geometry.shape(shape["geojson"])
+                lat1, long1, lat2, long2 = cityShape.bounds
+                bounds = [lat1, long1, lat2, long2]
+                # check if size is way too big or too small. If so --> kick out
+                size = getCitySize(bounds)
+                if size > 200 or size < 5:
+                    continue
+                cityGDF = geopandas.GeoDataFrame({
+                    "geometry": cityShape
+                }, index=[0])
+                return cityGDF, bounds
+        except:
+            continue
     # If nothing found return None
     return None, None
 

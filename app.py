@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, url_for, redirect
+from flask import Flask, render_template, request, url_for, redirect, flash
 import os
 import overlayLib
 
@@ -19,6 +19,7 @@ cities = [
 overlayIm = os.path.join(imageFolder, "defaultOverlay.png")
 
 app = Flask(__name__, static_url_path='/static')
+app.secret_key = "super secret key"
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
 
@@ -28,12 +29,26 @@ def compare():
     city2Query = request.form["City 2"]
     print(city1Query, " ", city2Query)
     if city1Query is "" or city2Query is "":
-        # TODO display warning
+        flash("Your query is empty")
         pass
     else:
         # Use the input, create new overlay, refresh page
-        city1, size1 = overlayLib.getCityOutline(city1Query)
-        city2, size2 = overlayLib.getCityOutline(city2Query)
+        city1, bounds1 = overlayLib.getCityOutline(city1Query)
+        city2, bounds2 = overlayLib.getCityOutline(city2Query)
+        # Check if something found
+        if city1 is None or city2 is None:
+            message = f"Could not find overlay for: "
+            if city1 is None:
+                message += f"{city1Query}"
+            if city2 is None:
+                if city1 is None:
+                    message += " and "
+                message += f"{city2Query}"
+            flash(message, category="info")
+            return redirect(url_for("home"))
+
+        size1 = overlayLib.getCitySize(bounds1)
+        size2 = overlayLib.getCitySize(bounds2)
         overlay = overlayLib.overlayCities(city1, size1, city2, size2)
         size1 = round(size1, 2)
         size2 = round(size2, 2)
