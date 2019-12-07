@@ -17,3 +17,8 @@ Using Openstreetmaps ([Link](https://nominatim.openstreetmap.org/)) I am able to
 2. Enter repository
 3. In command line: "flask run"
 4. Go to "http://127.0.0.1:5000/" in your browser
+---
+### Other Files
+I also tried training a UNet architecture to detect urban areas, but for now this was not very successful.
+
+As a result there are still files in this repository that I needed for that such as `trainCNN.py`, `GetData.ipynb`, `unet_model.py` and `unet_parts.py`

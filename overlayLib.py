@@ -30,6 +30,7 @@ def getCitySize(cityBounds):
 
 
 def getCityOutline(query: str):
+    # TODO cache query locally and check if already exists
     openStreetMap_base_url = "https://nominatim.openstreetmap.org/search"
     url = openStreetMap_base_url + '?' + urllib.parse.urlencode({
         "q": query,
