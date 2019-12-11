@@ -1,6 +1,8 @@
 # CC-TV
 City Comparison - Totally Virtual!
 
+![Example of Website](/static/images/Example.png)
+
 Using Openstreetmaps ([Link](https://nominatim.openstreetmap.org/)) I am able to get the overlay for a lot of cities. Using these, I calculate their sizes to scale them accordingly.
 
 ---
