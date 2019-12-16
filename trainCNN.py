@@ -9,10 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from unet_model import UNet
 
 from PIL import Image
-from pathlib import Path
-import requests
-import pickle
-import gzip
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 import time
@@ -45,7 +42,7 @@ class SatelliteDataset(Dataset):
             # Transform to tensor
             image = TF.to_tensor(image)
             target_image = TF.to_tensor(target_image)
-        return image.to(self.device), target_image.to(self.device)
+        return image, target_image
 
     def __len__(self):
         return len(self.image_paths)
@@ -102,7 +99,7 @@ def loss_batch(model, loss_func, xb, yb, opt=None):
     return loss.item(), len(xb)
 
 
-def fit(epochs, model, loss_func, opt, train_dl, valid_dl, save_every: int = None):
+def fit(epochs, model, loss_func, opt, train_dl, valid_dl, save_every: int = None, device="cpu"):
     writer = SummaryWriter()
     start_time = time.time()
     for epoch in range(epochs):
@@ -110,6 +107,8 @@ def fit(epochs, model, loss_func, opt, train_dl, valid_dl, save_every: int = Non
         train_loss = 0.0
         total_num = 0
         for xb, yb in train_dl:
+            xb = xb.to(device, non_blocking=True)
+            yb = yb.to(device, non_blocking=True)
             loss, num = loss_batch(model, loss_func, xb, yb, opt)
             train_loss += loss
             total_num += num
@@ -118,7 +117,7 @@ def fit(epochs, model, loss_func, opt, train_dl, valid_dl, save_every: int = Non
         model.eval()
         with torch.no_grad():
             losses, nums = zip(
-                *[loss_batch(model, loss_func, xb, yb) for xb, yb in valid_dl]
+                *[loss_batch(model, loss_func, xb.to(device, non_blocking=True), yb.to(device, non_blocking=True)) for xb, yb in valid_dl]
             )
         val_loss = np.sum(np.multiply(losses, nums)) / np.sum(nums)
 
@@ -184,7 +183,7 @@ def train_model():
 
     train_sat_ds = SatelliteDataset("data/sat_dataset/train/sat", "data/sat_dataset/train/combined", train=True, device=dev)
     valid_sat_ds = SatelliteDataset("data/sat_dataset/validation/sat", "data/sat_dataset/validation/combined", train=True, device=dev)
-    test_sat_ds = SatelliteDataset("data/sat_dataset/test/sat", "data/sat_dataset/test/combined", train=False, device=dev)
+    # test_sat_ds = SatelliteDataset("data/sat_dataset/test/sat", "data/sat_dataset/test/combined", train=False, device=dev)
 
     # Normalize/Scale only on train data. Use that scaler to later scale valid and test data
     # Pay attention to the range of your activation function! (Tanh --> [-1,1], Sigmoid --> [0,1])
@@ -195,9 +194,9 @@ def train_model():
 
     batchsize = 3
     # Create Dataloaders for the dataset
-    train_dl = DataLoader(train_sat_ds, batch_size=batchsize, shuffle=True)
-    valid_dl = DataLoader(valid_sat_ds, batch_size=batchsize * 2, shuffle=False)
-    test_dl = DataLoader(test_sat_ds, batch_size=batchsize, shuffle=False)
+    train_dl = DataLoader(train_sat_ds, batch_size=batchsize, shuffle=True, pin_memory=True, num_workers=8)
+    valid_dl = DataLoader(valid_sat_ds, batch_size=batchsize * 2, shuffle=False, pin_memory=True, num_workers=8)
+    # test_dl = DataLoader(test_sat_ds, batch_size=batchsize, shuffle=False)
 
     # Define model (done in function)
     lr = 0.01
@@ -207,10 +206,10 @@ def train_model():
     # Define optimizer
     opt = optim.RMSprop(model.parameters(), lr=lr, weight_decay=1e-8, momentum=0.9)
     # Loss function
-    loss_func = F.mse_loss
+    loss_func = F.l1_loss
     # Training
-    epochs = 100
-    fit(epochs, model, loss_func, opt, train_dl, valid_dl, save_every=5)
+    epochs = 1000
+    fit(epochs, model, loss_func, opt, train_dl, valid_dl, save_every=25, device=dev)
     # Save model
     torch.save({'state_dict': model.state_dict()}, "models/unet_sat.pt")
     # Calculate accuracy
@@ -220,27 +219,39 @@ def train_model():
 
 
 def resume_training(path_to_checkpoint):
-    lr = 0.1
+    dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    print(f"Device: {dev}")
+
+    train_sat_ds = SatelliteDataset("data/sat_dataset/train/sat", "data/sat_dataset/train/combined", train=True,
+                                    device=dev)
+    valid_sat_ds = SatelliteDataset("data/sat_dataset/validation/sat", "data/sat_dataset/validation/combined",
+                                    train=True, device=dev)
+    batchsize = 3
+    train_dl = DataLoader(train_sat_ds, batch_size=batchsize, shuffle=True, pin_memory=True, num_workers=4)
+    valid_dl = DataLoader(valid_sat_ds, batch_size=batchsize * 2, shuffle=False, pin_memory=True, num_workers=4)
+
+    lr = 0.01
+    total_epochs = 1000
     model = get_my_model()
-    opt = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+    model.to(dev)
+    opt = optim.RMSprop(model.parameters(), lr=lr, weight_decay=1e-8, momentum=0.9)
     checkpoint = torch.load(path_to_checkpoint)
     model.load_state_dict(checkpoint['model_state_dict'])
     opt.load_state_dict(checkpoint['optimizer_state_dict'])
     epoch = checkpoint['epoch']
     val_loss = checkpoint['val_loss']
     train_loss = checkpoint['train_loss']
+    loss_func = F.l1_loss
 
-    # for inferencing
-    # model.eval()
-    # - or for training -
-    model.train()
+    fit(total_epochs-epoch, model, loss_func, opt, train_dl, valid_dl, save_every=25, device=dev)
+    torch.save({'state_dict': model.state_dict()}, "models/unet_sat.pt")
 
 
 def test_model(path_to_model):
     dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = get_my_model()
     checkpoint = torch.load(path_to_model)
-    model.load_state_dict(checkpoint['state_dict'])
+    model.load_state_dict(checkpoint['model_state_dict'])
     # set to inference mode
     model.eval()
     model.to(dev)
@@ -254,9 +265,11 @@ def test_model(path_to_model):
 
     # Go through some examples and predict output
     n = 10
-    for i in range(len(test_sat_ds)):
+    for i in tqdm(range(len(test_sat_ds))):
         fig, axs = plt.subplots(1, 3)
         inp, target = test_sat_ds[i]
+        inp = inp.to(dev)
+        target = target.to(dev)
         y_pred = model(inp.unsqueeze(dim=0))
         # Copy tensors to cpu again
         inp, target, y_pred = inp.cpu(), target.cpu(), y_pred.cpu()
@@ -283,12 +296,13 @@ def test_model(path_to_model):
         axs[2].imshow(y_pred.astype("uint8"))
         axs[2].axis("off")
         axs[2].set(title=f"predicted")
-        plt.savefig(f"data/model_test/Testing {i}.png")
+        plt.savefig(f"data/model_test_bigger/Testing {i}.png")
         plt.close()
     # plt.show()
 
 
 if __name__ == "__main__":
-    # train_model()
+    train_model()
     # load_model()
-    test_model("models/unet_sat.pt")
+    # resume_training("models/model_epoch_25.pt")
+    # test_model("models/model_epoch_25.pt")
