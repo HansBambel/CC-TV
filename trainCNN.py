@@ -192,7 +192,7 @@ def train_model():
     # x_valid = scaler.transform(x_valid)
     # x_test = scaler.transform(x_test)
 
-    batchsize = 8
+    batchsize = 6
     # Create Dataloaders for the dataset
     train_dl = DataLoader(train_sat_ds, batch_size=batchsize, shuffle=True, pin_memory=True, num_workers=8)
     valid_dl = DataLoader(valid_sat_ds, batch_size=batchsize * 2, shuffle=False, pin_memory=True, num_workers=8)
