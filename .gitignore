@@ -107,3 +107,6 @@ gadm36.gpkg
 .idea
 data
 models
+cache
+runs
+static

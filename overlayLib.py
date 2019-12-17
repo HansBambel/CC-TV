@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from math import sin, cos, sqrt, atan2, radians
 import json
 from PIL import Image
+import os
 
 
 def getDistance(lat1, lon1, lat2, lon2):
@@ -30,7 +31,6 @@ def getCitySize(cityBounds):
 
 
 def getCityOutline(query: str):
-    # TODO cache query locally and check if already exists
     openStreetMap_base_url = "https://nominatim.openstreetmap.org/search"
     url = openStreetMap_base_url + '?' + urllib.parse.urlencode({
         "q": query,
@@ -38,8 +38,20 @@ def getCityOutline(query: str):
         "polygon_geojson": 1
     })
 
-    response = urllib.request.urlopen(url).read()
-    responseJson = json.loads(response)
+    # filename should not have things like "," or whitespaces
+    fileName = query.lower().replace(", ", "_").replace(",", "_")
+    # If json for that query already exists --> get it
+    if os.path.exists(f"cache/{fileName}.json"):
+        with open(f"cache/{fileName}.json", "r") as f:
+            responseJson = json.loads(f.read())
+    # else get it from the web
+    else:
+        response = urllib.request.urlopen(url).read()
+        responseJson = json.loads(response)
+        # save file
+        os.makedirs("cache", exist_ok=True)
+        with open(f"cache/{fileName}.json", "w") as f:
+            json.dump(responseJson, f)
 
     # find first multipolygon/polygon result (most likely the correct one)
     for shape in responseJson:
